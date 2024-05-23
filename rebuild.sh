@@ -1,0 +1,1 @@
+docker build -t game_of_life_hip .
