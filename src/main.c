@@ -17,10 +17,10 @@
 #define HEIGHT 600
 #define HEIGHT_STR EXPAND(HEIGHT)
 
-#define NUM_X 100
+#define NUM_X 4
 #define NUM_X_STR EXPAND(NUM_X)
 
-#define NUM_Y 100
+#define NUM_Y 4
 #define NUM_Y_STR EXPAND(NUM_Y)
 
 GLFWwindow* window;
@@ -220,9 +220,8 @@ void draw() {
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    // Swap buffers
-    glfwPollEvents();
     glfwSwapBuffers(window);
+    glfwPollEvents();
 }
 
 int main() {
@@ -231,7 +230,7 @@ int main() {
     while (!glfwWindowShouldClose(window)) {
         update();
         draw();
-        usleep(10000);
+        //usleep(10);
     }
 
     glfwDestroyWindow(window);
