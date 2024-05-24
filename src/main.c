@@ -8,20 +8,13 @@
 #include <GLFW/glfw3.h>
 
 #define STRINGIZE(x) #x
-#define EXPAND(x) STRINGIZE(x)
-
+#define STR(x) STRINGIZE(x)
 
 #define WIDTH 800
-#define WIDTH_STR EXPAND(WIDTH)
-
 #define HEIGHT 600
-#define HEIGHT_STR EXPAND(HEIGHT)
 
 #define NUM_X 4
-#define NUM_X_STR EXPAND(NUM_X)
-
 #define NUM_Y 4
-#define NUM_Y_STR EXPAND(NUM_Y)
 
 GLFWwindow* window;
 
@@ -46,16 +39,16 @@ const char* computeShaderSource =
     "            if (dx != 0 || dy != 0) {\n"
     "                int nx = int(x) + dx;\n"
     "                int ny = int(y) + dy;\n"
-    "                if (nx >= 0 && nx < " NUM_X_STR " && ny >= 0 && ny < " NUM_Y_STR ") {\n"
-    "                    neighbors += state[ny *" NUM_X_STR " + nx];\n"
+    "                if (nx >= 0 && nx < " STR(NUM_X) " && ny >= 0 && ny < " STR(NUM_Y) ") {\n"
+    "                    neighbors += state[ny *" STR(NUM_X) " + nx];\n"
     "                }\n"
     "            }\n"
     "        }\n"
     "    }\n"
-    "    if (neighbors == 3 || (state[y * " NUM_X_STR " + x] == 1 && neighbors == 2)) {\n"
-    "        state[y * " NUM_X_STR " + x] = 1;\n"
+    "    if (neighbors == 3 || (state[y * " STR(NUM_X) " + x] == 1 && neighbors == 2)) {\n"
+    "        state[y * " STR(NUM_X) " + x] = 1;\n"
     "    } else {\n"
-    "        state[y * " NUM_X_STR " + x] = 0;\n"
+    "        state[y * " STR(NUM_X) " + x] = 0;\n"
     "    }\n"
     "}\n";
 
@@ -64,7 +57,7 @@ const char* drawShaderSource =
     "out vec4 fragColor;\n"
     "uniform sampler2D tex;\n"
     "void main() {\n"
-    "    fragColor = texture(tex, gl_FragCoord.xy / vec2(" WIDTH_STR ", " HEIGHT_STR "));\n"
+    "    fragColor = texture(tex, gl_FragCoord.xy / vec2(" STR(WIDTH) ", " STR(HEIGHT) "));\n"
     "}\n";
 
 void error_callback(int error, const char* description) {
