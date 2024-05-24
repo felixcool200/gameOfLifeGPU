@@ -1,4 +1,4 @@
-./rebuild.sh
+docker build -t game_of_life_hip -f Dockerfile .
 xhost + local:docker
 docker run --rm --device=/dev/kfd --device=/dev/dri --group-add video \
   --net=host \
