@@ -1,9 +1,11 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+
 #include <stdlib.h>
 #include <stdio.h>
-#include <time.h>
 #include <unistd.h>
+
+#include <time.h>
 
 #include "debug.h"
 #include "shaders.h"
@@ -18,9 +20,35 @@
 // Add the ability to load a custom initial state
 
 
-#define WIDTH 800
-#define HEIGHT 600
-#define DIV_FACTOR 8
+#define WIDTH 1920
+#define HEIGHT 1080
+#define DIV_FACTOR 24 // 120 is max = 2 * 2 * 2 *  3 * 5 
+
+//Ensure that the width and height are divisible by the DIV_FACTOR
+#include <assert.h>
+static_assert(WIDTH % DIV_FACTOR == 0, "Width must be divisible by Div_factor");
+static_assert(HEIGHT % DIV_FACTOR == 0, "Height must be divisible by Div_factor");
+
+// CPU Timers for Debugging
+#define DEBUG_PRINT false
+#define CLOCK_ID CLOCK_MONOTONIC //CLOCK_BOOTTIME
+
+#if DEBUG_PRINT
+struct timespec start_CPU = {};
+void start_CPU_timer(){
+    start_CPU = std::chrono::high_resolution_clock::now();
+}
+
+long stop_CPU_timer(const char* info){
+    auto elapsed = std::chrono::high_resolution_clock::now() - start_CPU;
+    long microseconds = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+    printf("%ld microseconds\t\t%s\n", microseconds, info);
+    return microseconds;
+}
+#else
+void start_CPU_timer(){}
+long stop_CPU_timer(const char* info){return 0;}
+#endif
 
 // Function prototypes
 void initOpenGL();
@@ -47,7 +75,10 @@ int main() {
     }
 
     glfwSetErrorCallback(error_callback);
-    
+
+    //Allow for more than 60 fps
+    //glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_FALSE);
+
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -60,7 +91,8 @@ int main() {
     }
     
     glfwMakeContextCurrent(window);
-    
+    glfwSwapInterval(0);
+
     if (glewInit() != GLEW_OK) {
         printf("Failed to initialize GLEW\n");
         return -1;
@@ -73,7 +105,12 @@ int main() {
     GLuint renderShaderProgram = createRenderShaders();
     srand(time(NULL));
     // Create initial state for Game of Life
-    float initialStateData[WIDTH * HEIGHT * 4];
+    //float initialStateData[WIDTH * HEIGHT * 4];
+    float *initialStateData = (float*)malloc(WIDTH * HEIGHT * 4 * sizeof(float));
+    if(initialStateData == NULL){
+        printf("Failed to allocate memory for initialStateData\n");
+        return -1;
+    }
     for (int i = 0; i < WIDTH * HEIGHT * 4; i += 4) {
         // Initialize with some pattern or random state
         float state = (rand() % 2 == 0) ? 1.0f : 0.0f;
@@ -88,8 +125,29 @@ int main() {
     createInputTexture(&inputTextureID, WIDTH, HEIGHT, initialStateData);
     createTexture(&outputTextureID, WIDTH, HEIGHT);
 
+    //Timing
+    struct timespec fps_start_time, fps_end_time;
+    double frame_time = 0;
+    int counter = 0;
+    double max_fps = 60;
+    //double lastUpdateTime = 0;  // number of seconds since the iteration
     // Main render loop
     while (!glfwWindowShouldClose(window)) {
+        /*
+        //Start frame restriction timer
+        double now = glfwGetTime();
+
+        // Restrict frame rate
+        if (now - lastUpdateTime < 1/max_fps){
+            // Sleep for the remaining time to achieve the desired frame rate
+            usleep((1/max_fps - (now - lastUpdateTime)) * 1e6);
+            continue;
+        }
+        */
+        
+        //Start FPS timer
+        clock_gettime(CLOCK_ID, &fps_start_time);
+
         // Use compute shader to calculate next state
         glUseProgram(computeShaderProgram);
         checkGLError();
@@ -112,14 +170,24 @@ int main() {
         render(outputTextureID, renderShaderProgram);
         
         // Swap textures for next iteration
-        GLuint temp = inputTextureID;
+        GLuint tmp = inputTextureID;
         inputTextureID = outputTextureID;
-        outputTextureID = temp;
+        outputTextureID = tmp;
 
         glfwSwapBuffers(window);
         glfwPollEvents();
-        // Limit to 60 FPS
-        //usleep(1000 * 1000 / 60);
+
+        //Calulate frame time
+        clock_gettime(CLOCK_ID, &fps_end_time);
+        frame_time += (fps_end_time.tv_sec - fps_start_time.tv_sec) * 1e9 +
+                      (fps_end_time.tv_nsec - fps_start_time.tv_nsec);
+        if (++counter == max_fps)
+        {   
+            printf("Frame time: %fns, FPS: %f\n", frame_time/counter, (1e9*counter)/frame_time);
+            counter = 0;
+            frame_time = 0;
+        }
+        //lastUpdateTime = now;
     }
     
     // Cleanup
@@ -134,6 +202,8 @@ int main() {
     
     glfwDestroyWindow(window);
     glfwTerminate();
+
+    free(initialStateData);
     
     return 0;
 }
