@@ -1,64 +1,34 @@
-#include <stdio.h>
-#include <stdlib.h>
-
-#include <unistd.h>
-#include <time.h> 
-
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "debug.h"
+#include "shaders.h"
 
 #define STRINGIZE(x) #x
 #define STR(x) STRINGIZE(x)
 
+//TODO:
+// Fix to allow for larger grid sizes
+// Add functionality to record the fps
+// Add the ability to pause and resume the simulation
+// Add the ability to load a custom initial state
+
+
 #define WIDTH 800
 #define HEIGHT 600
+#define DIV_FACTOR 8
 
-#define NUM_X 4
-#define NUM_Y 4
-
-GLFWwindow* window;
-
-GLuint computeProgram;
-GLuint drawProgram;
-GLuint vao;
-GLuint tex[2];
-GLuint ssbo;
-
-const char* computeShaderSource =
-    "#version 430\n"
-    "layout(local_size_x = 10, local_size_y = 10) in;\n"
-    "layout(std430, binding = 0) buffer InputBuffer {\n"
-    "    int state[];\n"
-    "};\n"
-    "void main() {\n"
-    "    uint x = gl_GlobalInvocationID.x;\n"
-    "    uint y = gl_GlobalInvocationID.y;\n"
-    "    int neighbors = 0;\n"
-    "    for (int dx = -1; dx <= 1; dx++) {\n"
-    "        for (int dy = -1; dy <= 1; dy++) {\n"
-    "            if (dx != 0 || dy != 0) {\n"
-    "                int nx = int(x) + dx;\n"
-    "                int ny = int(y) + dy;\n"
-    "                if (nx >= 0 && nx < " STR(NUM_X) " && ny >= 0 && ny < " STR(NUM_Y) ") {\n"
-    "                    neighbors += state[ny *" STR(NUM_X) " + nx];\n"
-    "                }\n"
-    "            }\n"
-    "        }\n"
-    "    }\n"
-    "    if (neighbors == 3 || (state[y * " STR(NUM_X) " + x] == 1 && neighbors == 2)) {\n"
-    "        state[y * " STR(NUM_X) " + x] = 1;\n"
-    "    } else {\n"
-    "        state[y * " STR(NUM_X) " + x] = 0;\n"
-    "    }\n"
-    "}\n";
-
-const char* drawShaderSource =
-    "#version 330 core\n"
-    "out vec4 fragColor;\n"
-    "uniform sampler2D tex;\n"
-    "void main() {\n"
-    "    fragColor = texture(tex, gl_FragCoord.xy / vec2(" STR(WIDTH) ", " STR(HEIGHT) "));\n"
-    "}\n";
+// Function prototypes
+void initOpenGL();
+GLuint createComputeShader();
+GLuint createRenderShaders();
+void createInputTexture(GLuint *inputTextureID, int width, int height, const float* data);
+void createTexture(GLuint* textureID, int width, int height);
+void render(GLuint textureID, GLuint renderProgram);
 
 void error_callback(int error, const char* description) {
     fprintf(stderr, "Error: %s\n", description);
@@ -69,165 +39,253 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
 
-void CompileStatus(GLuint shader)
-{
-    GLint status = GL_TRUE;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-    if (status == GL_FALSE)
-    {
-        GLint logLen;
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLen);
-        char* log = (char*)malloc(logLen);
-        if (log == NULL)
-        {
-            fprintf(stderr, "Failed to allocate memory for shader log\n");
-            return;
-        }
-        GLsizei written;
-        glGetShaderInfoLog(shader, logLen, &written, log);
-        printf("Compile error:\n%s\n", log);
-        free(log);
-    }
-}
-
-void LinkStatus(GLuint program)
-{
-    GLint status = GL_TRUE;
-    glGetProgramiv(program, GL_LINK_STATUS, &status);
-    if (status == GL_FALSE)
-    {
-        GLint logLen;
-        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLen);
-        char* log = (char*)malloc(logLen);
-        if (log == NULL)
-        {
-            fprintf(stderr, "Failed to allocate memory for program log\n");
-            return;
-        }
-        GLsizei written;
-        glGetProgramInfoLog(program, logLen, &written, log);
-        printf("Link error:\n%s\n", log);
-        free(log);
-    }
-}
-
-void init() {
-    // Initialize GLFW
+int main() {
+    // Initialize OpenGL context
     if (!glfwInit()) {
-        fprintf(stderr, "Failed to initialize GLFW\n");
-        exit(EXIT_FAILURE);
+        printf("Failed to initialize GLFW\n");
+        return -1;
     }
 
     glfwSetErrorCallback(error_callback);
-
-    // Create a windowed mode window and its OpenGL context
-    window = glfwCreateWindow(WIDTH, HEIGHT, "Conway's Game of Life", NULL, NULL);
+    
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Compute Shader Game of Life", NULL, NULL);
     if (!window) {
+        printf("Failed to create GLFW window\n");
         glfwTerminate();
-        exit(EXIT_FAILURE);
+        return -1;
     }
-
-    // Make the window's context current
+    
     glfwMakeContextCurrent(window);
-
-    // Initialize GLEW
+    
     if (glewInit() != GLEW_OK) {
-        fprintf(stderr, "Failed to initialize GLEW\n");
-        exit(EXIT_FAILURE);
+        printf("Failed to initialize GLEW\n");
+        return -1;
     }
 
-    // Set the required callback functions
     glfwSetKeyCallback(window, key_callback);
-
-    // Create compute shader program
-    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
-    glShaderSource(computeShader, 1, &computeShaderSource, NULL);
-    glCompileShader(computeShader);
-    CompileStatus(computeShader);
-
-    computeProgram = glCreateProgram();
-    glAttachShader(computeProgram, computeShader);
-    glLinkProgram(computeProgram);
-    LinkStatus(computeProgram);
-
-    // Create draw shader program
-    GLuint drawShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(drawShader, 1, &drawShaderSource, NULL);
-    glCompileShader(drawShader);
-    CompileStatus(drawShader);
-
-    drawProgram = glCreateProgram();
-    glAttachShader(drawProgram, drawShader);
-    glLinkProgram(drawProgram);
-    LinkStatus(drawProgram);
-
-    // Create texture
-    glGenTextures(2, tex);
-    glBindTexture(GL_TEXTURE_2D, tex[0]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, NUM_X, NUM_Y, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
-    glBindImageTexture(0, tex[0], 0, GL_FALSE, 0, GL_READ_WRITE, GL_R8);
-    glBindTexture(GL_TEXTURE_2D, tex[1]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, NUM_X, NUM_Y, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
-
-    // Create SSBO
-    glGenBuffers(1, &ssbo);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_X * NUM_Y * sizeof(int), NULL, GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
-
-    // Initialize state buffer
-    int* state = (int*)malloc(NUM_X * NUM_Y * sizeof(int));
-    for (int i = 0; i < NUM_X * NUM_Y; ++i) {
-        state[i] = rand() % 2;
-        printf("%d ", state[i]);
+    
+    // Create compute shader and render shaders
+    GLuint computeShaderProgram = createComputeShader();
+    GLuint renderShaderProgram = createRenderShaders();
+    srand(time(NULL));
+    // Create initial state for Game of Life
+    float initialStateData[WIDTH * HEIGHT * 4];
+    for (int i = 0; i < WIDTH * HEIGHT * 4; i += 4) {
+        // Initialize with some pattern or random state
+        float state = (rand() % 2 == 0) ? 1.0f : 0.0f;
+        initialStateData[i + 0] = state; // Alive or dead cell
+        initialStateData[i + 1] = state; // Unused
+        initialStateData[i + 2] = state; // Unused
+        initialStateData[i + 3] = 1.0f; // Alpha channel
     }
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, NUM_X * NUM_Y * sizeof(int), state);
-    free(state);
+    
+    // Create input and output textures
+    GLuint inputTextureID, outputTextureID;
+    createInputTexture(&inputTextureID, WIDTH, HEIGHT, initialStateData);
+    createTexture(&outputTextureID, WIDTH, HEIGHT);
 
-    // Create vertex array object
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
-
-    glViewport(0, 0, WIDTH, HEIGHT);
-}
-
-void update() {
-    glUseProgram(computeProgram);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
-    glDispatchCompute(NUM_X / 10, NUM_Y / 10, 1);
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-
-    // Swap textures
-    GLuint tmp = tex[0];
-    tex[0] = tex[1];
-    tex[1] = tmp;
-    glBindImageTexture(0, tex[0], 0, GL_FALSE, 0, GL_READ_WRITE, GL_R8);
-}
-
-void draw() {
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    glUseProgram(drawProgram);
-    glUniform1i(glGetUniformLocation(drawProgram, "tex"), 0);
-
-    glBindVertexArray(vao);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-    glfwSwapBuffers(window);
-    glfwPollEvents();
-}
-
-int main() {
-    init();
-
+    // Main render loop
     while (!glfwWindowShouldClose(window)) {
-        update();
-        draw();
-        //usleep(10);
-    }
+        // Use compute shader to calculate next state
+        glUseProgram(computeShaderProgram);
+        checkGLError();
+        // Bind the input texture
+        glActiveTexture(GL_TEXTURE1);
+        checkGLError();
+        glBindTexture(GL_TEXTURE_2D, inputTextureID);
+        checkGLError();
+        // Bind the output texture
+        glBindImageTexture(0, outputTextureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+        checkGLError();
 
+        // Dispatch compute shader
+        glDispatchCompute((GLuint)WIDTH / DIV_FACTOR, (GLuint)HEIGHT / DIV_FACTOR, 1);
+        checkGLError();
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        checkGLError();
+        
+        // Render the current state to the screen
+        render(outputTextureID, renderShaderProgram);
+        
+        // Swap textures for next iteration
+        GLuint temp = inputTextureID;
+        inputTextureID = outputTextureID;
+        outputTextureID = temp;
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+        // Limit to 60 FPS
+        //usleep(1000 * 1000 / 60);
+    }
+    
+    // Cleanup
+    glDeleteProgram(computeShaderProgram);
+    checkGLError();
+    glDeleteProgram(renderShaderProgram);
+    checkGLError();
+    glDeleteTextures(1, &inputTextureID);
+    checkGLError();
+    glDeleteTextures(1, &outputTextureID);
+    checkGLError();
+    
     glfwDestroyWindow(window);
     glfwTerminate();
-
+    
     return 0;
+}
+
+GLuint createComputeShader() {
+    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
+    checkGLError();
+    glShaderSource(computeShader, 1, &computeShaderSource, NULL);
+    checkGLError();
+    glCompileShader(computeShader);
+    checkGLError();
+    CompileStatus(computeShader);
+    
+    GLuint program = glCreateProgram();
+    checkGLError();
+    glAttachShader(program, computeShader);
+    checkGLError();
+    glLinkProgram(program);
+    checkGLError();
+    LinkStatus(program);
+    
+    glDeleteShader(computeShader);
+    return program;
+}
+
+void createTexture(GLuint *textureID, int width, int height) {
+    glGenTextures(1, textureID);
+    checkGLError();
+    glBindTexture(GL_TEXTURE_2D, *textureID);
+    checkGLError();
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+    checkGLError();
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    checkGLError();
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    checkGLError();
+    glBindTexture(GL_TEXTURE_2D, 0);
+    checkGLError();
+}
+
+void createInputTexture(GLuint *inputTextureID, int width, int height, const float* data) {
+    glGenTextures(1, inputTextureID);
+    checkGLError();
+    glBindTexture(GL_TEXTURE_2D, *inputTextureID);
+    checkGLError();
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, data);
+    checkGLError();
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    checkGLError();
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    checkGLError();
+    glBindTexture(GL_TEXTURE_2D, 0);
+    checkGLError();
+}
+
+GLuint createRenderShaders() {    
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    checkGLError();
+    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+    checkGLError();
+    glCompileShader(vertexShader);
+    checkGLError();
+    CompileStatus(vertexShader);
+    
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    checkGLError();
+    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+    checkGLError();
+    glCompileShader(fragmentShader);
+    checkGLError();
+    CompileStatus(fragmentShader);
+    
+    GLuint program = glCreateProgram();
+    checkGLError();
+    glAttachShader(program, vertexShader);
+    checkGLError();
+    glAttachShader(program, fragmentShader);
+    checkGLError();
+    glLinkProgram(program);
+    checkGLError();
+    LinkStatus(program);
+
+    glDeleteShader(vertexShader);
+    checkGLError();
+    glDeleteShader(fragmentShader);
+    checkGLError();
+    return program;
+}
+
+void render(GLuint textureID, GLuint renderProgram) {
+    static const float vertices[] = {
+        // positions   // texcoords
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f,
+        -1.0f,  1.0f,  0.0f, 1.0f
+    };
+
+    static const unsigned int indices[] = {
+        0, 1, 2,
+        2, 3, 0
+    };
+
+    static GLuint VAO = 0, VBO = 0, EBO = 0;
+    if (VAO == 0) {
+        glGenVertexArrays(1, &VAO);
+        checkGLError();
+        glGenBuffers(1, &VBO);
+        checkGLError();
+        glGenBuffers(1, &EBO);
+        checkGLError();
+
+        glBindVertexArray(VAO);
+        checkGLError();
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        checkGLError();
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        checkGLError();
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        checkGLError();
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+        checkGLError();
+
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+        checkGLError();
+        glEnableVertexAttribArray(0);
+        checkGLError();
+
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+        checkGLError();
+        glEnableVertexAttribArray(1);
+        checkGLError();
+
+        glBindVertexArray(0);
+        checkGLError();
+    }
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    checkGLError();
+
+    glUseProgram(renderProgram);
+    checkGLError();
+    glBindVertexArray(VAO);
+    checkGLError();
+
+    glActiveTexture(GL_TEXTURE0);
+    checkGLError();
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    checkGLError();
+
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+    checkGLError();
 }

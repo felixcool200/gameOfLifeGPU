@@ -31,7 +31,7 @@ RUN cd /usr/local/src/gameOfLife && \
     -o gameOfLife \
     -L/usr/lib \
     -I/usr/local/src/gameOfLife/include \
-    src/main.c \
+    src/main.c src/debug.c\
     -lglfw -lGLEW -lGL -lpthread \
     -Wall -Werror -O3 -lm
 #-lm -lX11 -lpthread -lXrandr -lXi -ldl \
