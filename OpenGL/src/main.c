@@ -7,11 +7,9 @@
 
 #include <time.h>
 
+#include "consts.h"
 #include "debug.h"
 #include "shaders.h"
-
-#define STRINGIZE(x) #x
-#define STR(x) STRINGIZE(x)
 
 //TODO:
 // Fix to allow for larger grid sizes
@@ -19,35 +17,22 @@
 // Add the ability to pause and resume the simulation
 // Add the ability to load a custom initial state
 
-
-#define WIDTH 1920
-#define HEIGHT 1080
-#define DIV_FACTOR 24 // 120 is max = 2 * 2 * 2 *  3 * 5 
-
-//Ensure that the width and height are divisible by the DIV_FACTOR
-#include <assert.h>
-static_assert(WIDTH % DIV_FACTOR == 0, "Width must be divisible by Div_factor");
-static_assert(HEIGHT % DIV_FACTOR == 0, "Height must be divisible by Div_factor");
-
-// CPU Timers for Debugging
-#define DEBUG_PRINT false
-#define CLOCK_ID CLOCK_MONOTONIC //CLOCK_BOOTTIME
-
-#if DEBUG_PRINT
+#if DEBUG
 struct timespec start_CPU = {};
 void start_CPU_timer(){
-    start_CPU = std::chrono::high_resolution_clock::now();
+    clock_gettime(CLOCK_ID, &start_CPU);
 }
 
-long stop_CPU_timer(const char* info){
-    auto elapsed = std::chrono::high_resolution_clock::now() - start_CPU;
-    long microseconds = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-    printf("%ld microseconds\t\t%s\n", microseconds, info);
-    return microseconds;
+void stop_CPU_timer(const char* info){
+    struct timespec now;
+    clock_gettime(CLOCK_ID, &now);
+    long nanosec = (now.tv_sec - start_CPU.tv_sec) * 1e9 +
+                   (now.tv_nsec - start_CPU.tv_nsec);
+    printf("%ld ns\t\t%s\n", nanosec, info);
 }
 #else
 void start_CPU_timer(){}
-long stop_CPU_timer(const char* info){return 0;}
+void stop_CPU_timer(const char* info){}
 #endif
 
 // Function prototypes
@@ -69,6 +54,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
 int main() {
     // Initialize OpenGL context
+    start_CPU_timer();
     if (!glfwInit()) {
         printf("Failed to initialize GLFW\n");
         return -1;
@@ -92,19 +78,26 @@ int main() {
     
     glfwMakeContextCurrent(window);
     glfwSwapInterval(0);
+    glfwSetKeyCallback(window, key_callback);
+    stop_CPU_timer("glfw init");
+    start_CPU_timer();
 
     if (glewInit() != GLEW_OK) {
         printf("Failed to initialize GLEW\n");
         return -1;
     }
+    stop_CPU_timer("glew init");
+    start_CPU_timer();
 
-    glfwSetKeyCallback(window, key_callback);
-    
+    start_CPU_timer();
     // Create compute shader and render shaders
     GLuint computeShaderProgram = createComputeShader();
     GLuint renderShaderProgram = createRenderShaders();
+    stop_CPU_timer("Create Compute and renderShader program");
     srand(time(NULL));
-    // Create initial state for Game of Life
+
+    start_CPU_timer();
+    // Create initial game state
     //float initialStateData[WIDTH * HEIGHT * 4];
     float *initialStateData = (float*)malloc(WIDTH * HEIGHT * 4 * sizeof(float));
     if(initialStateData == NULL){
@@ -119,12 +112,13 @@ int main() {
         initialStateData[i + 2] = state; // Unused
         initialStateData[i + 3] = 1.0f; // Alpha channel
     }
-    
+    stop_CPU_timer("Creating Inital game state");
+    start_CPU_timer();
     // Create input and output textures
     GLuint inputTextureID, outputTextureID;
     createInputTexture(&inputTextureID, WIDTH, HEIGHT, initialStateData);
     createTexture(&outputTextureID, WIDTH, HEIGHT);
-
+    stop_CPU_timer("Create input and output textures");
     //Timing
     struct timespec fps_start_time, fps_end_time;
     double frame_time = 0;
@@ -133,21 +127,11 @@ int main() {
     //double lastUpdateTime = 0;  // number of seconds since the iteration
     // Main render loop
     while (!glfwWindowShouldClose(window)) {
-        /*
-        //Start frame restriction timer
-        double now = glfwGetTime();
-
-        // Restrict frame rate
-        if (now - lastUpdateTime < 1/max_fps){
-            // Sleep for the remaining time to achieve the desired frame rate
-            usleep((1/max_fps - (now - lastUpdateTime)) * 1e6);
-            continue;
-        }
-        */
         
         //Start FPS timer
         clock_gettime(CLOCK_ID, &fps_start_time);
-
+        
+        start_CPU_timer();
         // Use compute shader to calculate next state
         glUseProgram(computeShaderProgram);
         checkGLError();
@@ -159,24 +143,31 @@ int main() {
         // Bind the output texture
         glBindImageTexture(0, outputTextureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
         checkGLError();
-
+        stop_CPU_timer("Switch to compute");
+        start_CPU_timer();
         // Dispatch compute shader
         glDispatchCompute((GLuint)WIDTH / DIV_FACTOR, (GLuint)HEIGHT / DIV_FACTOR, 1);
         checkGLError();
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         checkGLError();
+        stop_CPU_timer("Dispatch compute and sync");
+        start_CPU_timer();
         
         // Render the current state to the screen
         render(outputTextureID, renderShaderProgram);
         
+        stop_CPU_timer("Rendering");
+        start_CPU_timer();
         // Swap textures for next iteration
         GLuint tmp = inputTextureID;
         inputTextureID = outputTextureID;
         outputTextureID = tmp;
-
         glfwSwapBuffers(window);
+        stop_CPU_timer("Swap buffers");
+        start_CPU_timer();
         glfwPollEvents();
-
+        stop_CPU_timer("Poll events");
+        start_CPU_timer();
         //Calulate frame time
         clock_gettime(CLOCK_ID, &fps_end_time);
         frame_time += (fps_end_time.tv_sec - fps_start_time.tv_sec) * 1e9 +
@@ -187,6 +178,7 @@ int main() {
             counter = 0;
             frame_time = 0;
         }
+        stop_CPU_timer("Calulate framerate");
         //lastUpdateTime = now;
     }
     

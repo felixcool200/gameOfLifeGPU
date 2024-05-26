@@ -1,8 +1,12 @@
+#ifndef SHADERS_H
+#define SHADERS_H
+
+#include "consts.h"
 
 //Shaders
 const char* computeShaderSource = R"(
 #version 430 core
-layout (local_size_x = 16, local_size_y = 16) in;
+layout (local_size_x = )" STR(DIV_FACTOR) R"(, local_size_y = )" STR(DIV_FACTOR) R"() in;
 layout (rgba32f, binding = 0) uniform image2D img_output;
 layout (binding = 1) uniform sampler2D img_input;
 
@@ -20,8 +24,11 @@ void main() {
     // Count alive neighbors
     for (int i = 0; i < 8; ++i) {
         ivec2 neighbor_coords = pixel_coords + directions[i];
-        vec4 neighbor_state = texelFetch(img_input, neighbor_coords, 0);
-        alive_neighbors += int(neighbor_state.r);
+        //if (neighbor_coords.x >= 0 && neighbor_coords.x < )" STR(WIDTH) R"( &&
+        //    neighbor_coords.y >= 0 && neighbor_coords.y < )" STR(HEIGHT) R"() {
+            vec4 neighbor_state = texelFetch(img_input, neighbor_coords, 0);
+            alive_neighbors += int(neighbor_state.r);
+        //}
     }
 
     // Apply Game of Life rules
@@ -29,18 +36,16 @@ void main() {
     if (current_state.r == 1.0) {
         // Current cell is alive
         if (alive_neighbors == 2 || alive_neighbors == 3) {
-            next_state.rgb = vec3(1,1,1); // Stays alive
-        }
-        else {
-            next_state.rgb = vec3(0,0,0); // Dies
+            next_state.rgb = vec3(1, 1, 1); // Stays alive
+        } else {
+            next_state.rgb = vec3(0, 0, 0); // Dies
         }
     } else {
         // Current cell is dead
         if (alive_neighbors == 3) {
-            next_state.rgb = vec3(1,1,1); // Becomes alive
-        }
-        else {
-            next_state.rgb = vec3(0,0,0); // Stays dead
+            next_state.rgb = vec3(1, 1, 1); // Becomes alive
+        } else {
+            next_state.rgb = vec3(0, 0, 0); // Stays dead
         }
     }
 
@@ -85,3 +90,5 @@ const char* computeShaderSource =
     "    imageStore(img_output, pixel_coords, color);\n"
     "}\n";
 */
+
+#endif
