@@ -18,6 +18,10 @@ ivec2 directions[8] = ivec2[8](
 
 void main() {
     ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+    //if (pixel_coords.x < 0 && pixel_coords.x >= )" STR(WIDTH) R"( &&
+    //    pixel_coords.y < 0 && pixel_coords.y >= )" STR(HEIGHT) R"() {
+    //        return;
+    //    }
     vec4 current_state = texelFetch(img_input, pixel_coords, 0);
     int alive_neighbors = 0;
 

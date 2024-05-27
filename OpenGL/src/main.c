@@ -12,8 +12,6 @@
 #include "shaders.h"
 
 //TODO:
-// Fix to allow for larger grid sizes
-// Add functionality to record the fps
 // Add the ability to pause and resume the simulation
 // Add the ability to load a custom initial state
 
@@ -36,7 +34,6 @@ void stop_CPU_timer(const char* info){}
 #endif
 
 // Function prototypes
-void initOpenGL();
 GLuint createComputeShader();
 GLuint createRenderShaders();
 void createInputTexture(GLuint *inputTextureID, int width, int height, const float* data);
@@ -63,13 +60,14 @@ int main() {
     glfwSetErrorCallback(error_callback);
 
     //Allow for more than 60 fps
-    //glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_FALSE);
+    glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_FALSE);
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     
-    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Compute Shader Game of Life", NULL, NULL);
+    //GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Compute Shader Game of Life", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Compute Shader Game of Life", glfwGetPrimaryMonitor(), NULL);
     if (!window) {
         printf("Failed to create GLFW window\n");
         glfwTerminate();
@@ -123,11 +121,12 @@ int main() {
     struct timespec fps_start_time, fps_end_time;
     double frame_time = 0;
     int counter = 0;
+    long counter2 = 0;
     double max_fps = 60;
     //double lastUpdateTime = 0;  // number of seconds since the iteration
     // Main render loop
     while (!glfwWindowShouldClose(window)) {
-        
+        counter2++;
         //Start FPS timer
         clock_gettime(CLOCK_ID, &fps_start_time);
         
@@ -157,14 +156,21 @@ int main() {
         render(outputTextureID, renderShaderProgram);
         
         stop_CPU_timer("Rendering");
-        start_CPU_timer();
         // Swap textures for next iteration
         GLuint tmp = inputTextureID;
         inputTextureID = outputTextureID;
         outputTextureID = tmp;
-        glfwSwapBuffers(window);
-        stop_CPU_timer("Swap buffers");
+
         start_CPU_timer();
+        //GLFW Update screen
+        //glfwSwapBuffers(window);
+        //stop_CPU_timer("Swap buffers");
+        glFlush();
+        //glFinish();
+        stop_CPU_timer("glFlush");
+
+        start_CPU_timer();
+
         glfwPollEvents();
         stop_CPU_timer("Poll events");
         start_CPU_timer();
@@ -181,6 +187,7 @@ int main() {
         stop_CPU_timer("Calulate framerate");
         //lastUpdateTime = now;
     }
+    printf("Counter2: %ld\n", counter2);
     
     // Cleanup
     glDeleteProgram(computeShaderProgram);
