@@ -13,8 +13,8 @@
 #define true 1
 #define false 0
 
-#define DEBUG false
-#define DEVELOPMENT false
+#define DEBUG 0
+#define DEVELOPMENT 1
 
 //Ensure that the width and height are divisible by the DIV_FACTOR
 

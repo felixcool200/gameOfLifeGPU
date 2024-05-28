@@ -4,14 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if DEVELOPMENT == false
-void checkGLError() {}
-void printShaderSource(GLuint shader) {}
-void CompileStatus(GLuint shader){}
-void LinkStatus(GLuint program){}
+#include "consts.h"
 
-#else
-
+#if DEVELOPMENT == 1
 void checkGLError() {
     GLenum err;
     while((err = glGetError()) != GL_NO_ERROR) {
@@ -88,7 +83,11 @@ void LinkStatus(GLuint program)
         glGetProgramInfoLog(program, logLen, &written, log);
         printf("Link error:\n%s\n", log);
         free(log);
-        printShaderSource(shader);
     }
 }
+#else
+void checkGLError() {}
+void printShaderSource(GLuint shader) {}
+void CompileStatus(GLuint shader){}
+void LinkStatus(GLuint program){}
 #endif

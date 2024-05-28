@@ -36,9 +36,10 @@ void stop_CPU_timer(const char* info){}
 // Function prototypes
 GLuint createComputeShader();
 GLuint createRenderShaders();
+GLuint createFragmentComputeShader();
 void createInputTexture(GLuint *inputTextureID, int width, int height, const float* data);
 void createTexture(GLuint* textureID, int width, int height);
-void render(GLuint textureID, GLuint renderProgram);
+void render(GLuint InputTextureID, GLuint OutputTextureID, GLuint renderProgram);
 
 void error_callback(int error, const char* description) {
     fprintf(stderr, "Error: %s\n", description);
@@ -59,22 +60,14 @@ int main() {
 
     glfwSetErrorCallback(error_callback);
 
-    int doubleBuffer = true;
-    int fullscreen = false;
-    if(!doubleBuffer){
-        glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_FALSE);
-    }
+    //glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_FALSE);
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     
-    GLFWwindow* window;
-    if(fullscreen){
-        window = glfwCreateWindow(WIDTH, HEIGHT, "Compute Shader Game of Life", glfwGetPrimaryMonitor(), NULL);
-    }else{
-        window = glfwCreateWindow(WIDTH, HEIGHT, "Compute Shader Game of Life", NULL, NULL);
-    }
+    //GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Compute Shader Game of Life", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Compute Shader Game of Life", glfwGetPrimaryMonitor(), NULL);
     if (!window) {
         printf("Failed to create GLFW window\n");
         glfwTerminate();
@@ -82,7 +75,7 @@ int main() {
     }
     
     glfwMakeContextCurrent(window);
-    
+
     //Allow for more than 60 fps
     glfwSwapInterval(0);
     glfwSetKeyCallback(window, key_callback);
@@ -98,8 +91,7 @@ int main() {
 
     start_CPU_timer();
     // Create compute shader and render shaders
-    GLuint computeShaderProgram = createComputeShader();
-    GLuint renderShaderProgram = createRenderShaders();
+    GLuint fragmentComputeShaderProgram = createFragmentComputeShader();
     stop_CPU_timer("Create Compute and renderShader program");
     srand(time(NULL));
 
@@ -138,31 +130,9 @@ int main() {
         counter2++;
         //Start FPS timer
         clock_gettime(CLOCK_ID, &fps_start_time);
-        
-        start_CPU_timer();
-        // Use compute shader to calculate next state
-        glUseProgram(computeShaderProgram);
-        checkGLError();
-        // Bind the input texture
-        glActiveTexture(GL_TEXTURE1);
-        checkGLError();
-        glBindTexture(GL_TEXTURE_2D, inputTextureID);
-        checkGLError();
-        // Bind the output texture
-        glBindImageTexture(0, outputTextureID, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
-        checkGLError();
-        stop_CPU_timer("Switch to compute");
-        start_CPU_timer();
-        // Dispatch compute shader
-        glDispatchCompute((GLuint)WIDTH / DIV_FACTOR, (GLuint)HEIGHT / DIV_FACTOR, 1);
-        checkGLError();
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-        checkGLError();
-        stop_CPU_timer("Dispatch compute and sync");
-        start_CPU_timer();
-        
+
         // Render the current state to the screen
-        render(outputTextureID, renderShaderProgram);
+        render(inputTextureID, outputTextureID, fragmentComputeShaderProgram);
         
         stop_CPU_timer("Rendering");
         // Swap textures for next iteration
@@ -172,15 +142,12 @@ int main() {
 
         start_CPU_timer();
         //GLFW Update screen
-        if(doubleBuffer){
-            glfwSwapBuffers(window);
-            stop_CPU_timer("Swap buffer");
-        }else{
-            glFlush();
-            //glFinish();
-            stop_CPU_timer("glFlush");
+        glfwSwapBuffers(window);
+        //stop_CPU_timer("Swap buffers");
+        //glFlush();
+        //glFinish();
+        stop_CPU_timer("glFlush");
 
-        }
         start_CPU_timer();
 
         glfwPollEvents();
@@ -202,9 +169,7 @@ int main() {
     printf("Counter2: %ld\n", counter2);
     
     // Cleanup
-    glDeleteProgram(computeShaderProgram);
-    checkGLError();
-    glDeleteProgram(renderShaderProgram);
+    glDeleteProgram(fragmentComputeShaderProgram);
     checkGLError();
     glDeleteTextures(1, &inputTextureID);
     checkGLError();
@@ -217,27 +182,6 @@ int main() {
     free(initialStateData);
     
     return 0;
-}
-
-GLuint createComputeShader() {
-    GLuint computeShader = glCreateShader(GL_COMPUTE_SHADER);
-    checkGLError();
-    glShaderSource(computeShader, 1, &computeShaderSource, NULL);
-    checkGLError();
-    glCompileShader(computeShader);
-    checkGLError();
-    CompileStatus(computeShader);
-    
-    GLuint program = glCreateProgram();
-    checkGLError();
-    glAttachShader(program, computeShader);
-    checkGLError();
-    glLinkProgram(program);
-    checkGLError();
-    LinkStatus(program);
-    
-    glDeleteShader(computeShader);
-    return program;
 }
 
 void createTexture(GLuint *textureID, int width, int height) {
@@ -270,28 +214,28 @@ void createInputTexture(GLuint *inputTextureID, int width, int height, const flo
     checkGLError();
 }
 
-GLuint createRenderShaders() {    
+GLuint createFragmentComputeShader() {    
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
     checkGLError();
-    glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+    glShaderSource(vertexShader, 1, &vertexShaderINTSource, NULL);
     checkGLError();
     glCompileShader(vertexShader);
     checkGLError();
     CompileStatus(vertexShader);
     
-    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    GLuint fragmentAndComputeShader = glCreateShader(GL_FRAGMENT_SHADER);
     checkGLError();
-    glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+    glShaderSource(fragmentAndComputeShader, 1, &fragmentAndComputeShaderSource, NULL);
     checkGLError();
-    glCompileShader(fragmentShader);
+    glCompileShader(fragmentAndComputeShader);
     checkGLError();
-    CompileStatus(fragmentShader);
+    CompileStatus(fragmentAndComputeShader);
     
     GLuint program = glCreateProgram();
     checkGLError();
     glAttachShader(program, vertexShader);
     checkGLError();
-    glAttachShader(program, fragmentShader);
+    glAttachShader(program, fragmentAndComputeShader);
     checkGLError();
     glLinkProgram(program);
     checkGLError();
@@ -299,18 +243,18 @@ GLuint createRenderShaders() {
 
     glDeleteShader(vertexShader);
     checkGLError();
-    glDeleteShader(fragmentShader);
+    glDeleteShader(fragmentAndComputeShader);
     checkGLError();
     return program;
 }
 
-void render(GLuint textureID, GLuint renderProgram) {
-    static const float vertices[] = {
+void render(GLuint InputTextureID, GLuint OutputTextureID, GLuint renderProgram) {
+    static const GLint vertices[] = {
         // positions   // texcoords
-        -1.0f, -1.0f,  0.0f, 0.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
-         1.0f,  1.0f,  1.0f, 1.0f,
-        -1.0f,  1.0f,  0.0f, 1.0f
+        -1, -1,  0, 0,
+         1, -1,  1, 0,
+         1,  1,  1, 1,
+        -1,  1,  0, 1
     };
 
     static const unsigned int indices[] = {
@@ -340,12 +284,12 @@ void render(GLuint textureID, GLuint renderProgram) {
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
         checkGLError();
 
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+        glVertexAttribPointer(0, 2, GL_INT, GL_FALSE, 4 * sizeof(GLint), (void*)0);
         checkGLError();
         glEnableVertexAttribArray(0);
         checkGLError();
 
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+        glVertexAttribPointer(1, 2, GL_INT, GL_FALSE, 4 * sizeof(GLint), (void*)(2 * sizeof(GLint)));
         checkGLError();
         glEnableVertexAttribArray(1);
         checkGLError();
@@ -362,10 +306,18 @@ void render(GLuint textureID, GLuint renderProgram) {
     glBindVertexArray(VAO);
     checkGLError();
 
+    glActiveTexture(GL_TEXTURE1);
+    checkGLError();
+    glBindTexture(GL_TEXTURE_2D, InputTextureID);
+    checkGLError();
+
     glActiveTexture(GL_TEXTURE0);
     checkGLError();
-    glBindTexture(GL_TEXTURE_2D, textureID);
+    glBindTexture(GL_TEXTURE_2D, OutputTextureID);
     checkGLError();
+
+    glUniform1i(glGetUniformLocation(renderProgram, "img_input"), 1);
+    glUniform1i(glGetUniformLocation(renderProgram, "img_output"), 0);
 
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     checkGLError();
